@@ -1,0 +1,484 @@
+<meta charset="utf-8">
+<title>STL 内部零件剔除器</title>
+<style>
+:root{
+ --ground:#e9edf1;--surface:#fff;--surface-2:#f4f7f9;--ink:#0f171d;--ink-2:#54636f;--ink-3:#8496a3;
+ --line:#d2dae1;--accent:#13657f;--red:#bf3f3b;--ok:#2c7350;--warn:#9a6414;--view:#dfe5ea;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --ground:#0c1216;--surface:#141c22;--surface-2:#1a242b;--ink:#e6ecf1;--ink-2:#94a4b0;--ink-3:#6c7d8a;
+ --line:#27343d;--accent:#57b3cc;--red:#e0736e;--ok:#68bd93;--warn:#d5a251;--view:#0f171d;
+}}
+:root[data-theme="dark"]{
+ --ground:#0c1216;--surface:#141c22;--surface-2:#1a242b;--ink:#e6ecf1;--ink-2:#94a4b0;--ink-3:#6c7d8a;
+ --line:#27343d;--accent:#57b3cc;--red:#e0736e;--ok:#68bd93;--warn:#d5a251;--view:#0f171d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+ font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","PingFang SC","Microsoft YaHei",sans-serif;
+ -webkit-font-smoothing:antialiased;overflow:hidden}
+.mono,button,input,select{font-family:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:var(--surface);
+ border-bottom:1px solid var(--line)}
+h1{font-size:.92rem;margin:0;letter-spacing:.04em;font-weight:600;white-space:nowrap}
+h1 span{color:var(--ink-3);font-weight:400;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase}
+.grow{flex:1}
+button{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:3px;
+ padding:5px 11px;font-size:.79rem;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover:not(:disabled){filter:brightness(1.1);color:#fff}
+label.file{display:inline-block}
+label.file input{display:none}
+main{flex:1;display:flex;min-height:0}
+#view{flex:1;position:relative;background:var(--view);min-width:0}
+canvas{display:block;width:100%;height:100%;cursor:grab}
+canvas:active{cursor:grabbing}
+#hint{position:absolute;left:14px;bottom:12px;font-size:.74rem;color:var(--ink-3);pointer-events:none;
+ line-height:1.7;text-shadow:0 1px 2px var(--view)}
+#drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+ gap:10px;color:var(--ink-2);font-size:.9rem;text-align:center;padding:20px}
+#drop.hide{display:none}
+#drop b{font-size:1.05rem;color:var(--ink)}
+#drop.over{background:color-mix(in srgb,var(--accent) 12%,transparent);outline:2px dashed var(--accent);outline-offset:-14px}
+aside{width:352px;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.panel{padding:11px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:9px}
+.row{display:flex;align-items:center;gap:9px;font-size:.79rem;color:var(--ink-2)}
+.row .k{color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}
+.stat{display:flex;justify-content:space-between;font-size:.82rem;font-variant-numeric:tabular-nums}
+.stat b{font-family:ui-monospace,Menlo,monospace;font-weight:600}
+input[type=range]{flex:1;accent-color:var(--accent);min-width:0}
+#list{flex:1;overflow-y:auto;overflow-x:hidden}
+table{width:100%;border-collapse:collapse;font-size:.78rem;font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--surface-2);color:var(--ink-3);font-size:.65rem;letter-spacing:.1em;
+ text-transform:uppercase;font-weight:600;padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);z-index:1}
+th:first-child,td:first-child{text-align:left}
+td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--line);
+ font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+tr.item{cursor:pointer}
+tr.item:hover td{background:var(--surface-2)}
+tr.item.sel td{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+tr.del td:first-child{color:var(--red)}
+tr.del td.st{color:var(--red)}
+tr.keep td.st{color:var(--ok)}
+td.st{letter-spacing:.02em}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.man{color:var(--warn)}
+footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ground) 72%,transparent);
+ font-size:.85rem;color:var(--ink);letter-spacing:.05em}
+#busy.hide{display:none}
+</style>
+
+<div id="app">
+<header>
+ <h1>STL 内部零件剔除器 <span>vis_split · gui</span></h1>
+ <label class="file"><input type="file" id="file" accept=".stl,.STL"><button onclick="document.getElementById('file').click()">打开 STL…</button></label>
+ <span id="fname" class="row mono"></span>
+ <span class="grow"></span>
+ <button id="btnReset" disabled>重置手动改动</button>
+ <button id="btnExport" class="primary" disabled>导出 STL</button>
+</header>
+<main>
+ <div id="view">
+  <canvas id="cv"></canvas>
+  <div id="drop"><b>把 STL 拖进来，或点左上角「打开 STL…」</b>
+   <div>拆连通体 → 从 64 个方向算每个零件的可见率 → 低于阈值的自动标删<br>看着不对的，在右侧列表或直接在模型上点一下就能改</div></div>
+  <div id="hint"></div>
+  <div id="busy" class="hide"></div>
+ </div>
+ <aside>
+  <div class="panel">
+   <div class="row"><span class="k">自动阈值</span><input type="range" id="thresh" min="0" max="40" step="1" value="5"><b class="mono" id="threshV">5%</b></div>
+   <div class="stat"><span>零件（≥100 面）</span><b id="sComp">—</b></div>
+   <div class="stat"><span>保留 / 原始面数</span><b id="sFace">—</b></div>
+   <div class="stat"><span>减少</span><b id="sCut">—</b></div>
+  </div>
+  <div class="panel">
+   <div class="row">
+    <label class="row" style="gap:5px"><input type="checkbox" id="cbShow" checked> 显示被删零件</label>
+    <label class="row" style="gap:5px"><input type="checkbox" id="cbIso"> 只看选中</label>
+   </div>
+   <div class="row"><button id="btnAll">全保留</button><button id="btnNone">全删除</button><button id="btnAuto">按阈值重算</button></div>
+  </div>
+  <div id="list"><table><thead><tr><th>零件</th><th>面数</th><th>可见率</th><th>状态</th></tr></thead><tbody id="tb"></tbody></table></div>
+  <footer><span class="row" id="foot">等待文件…</span></footer>
+ </aside>
+</main>
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const SLIVER=100;                       // 小于这个面数的碎片一律保留（CAD 导出的零面积三角形）
+const NDIR=64, VPX=320;                 // 可见率: 64 个方向 x 320px 正交扫描
+let G=null;                             // 当前模型的全部状态
+
+/* ---------- 小型矩阵库 ---------- */
+const M4={
+ mul:(a,b)=>{const o=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;
+  for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;},
+ ortho:(l,r,b,t,n,f)=>new Float32Array([2/(r-l),0,0,0, 0,2/(t-b),0,0, 0,0,-2/(f-n),0,
+  -(r+l)/(r-l),-(t+b)/(t-b),-(f+n)/(f-n),1]),
+ persp:(fy,as,n,f)=>{const t=1/Math.tan(fy/2);return new Float32Array([t/as,0,0,0, 0,t,0,0,
+  0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]);},
+ look:(e,c,u)=>{const z=nrm(sub(e,c)),x=nrm(cross(u,z)),y=cross(z,x);
+  return new Float32Array([x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+   -dot(x,e),-dot(y,e),-dot(z,e),1]);}
+};
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]], dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const nrm=a=>{const l=Math.hypot(...a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
+
+/* ---------- STL 解析 ---------- */
+function parseSTL(buf){
+ const dv=new DataView(buf);
+ let ascii=false;
+ const head=new TextDecoder().decode(new Uint8Array(buf,0,Math.min(84,buf.byteLength)));
+ if(head.trim().startsWith("solid")){                       // 可能是 ASCII，用面数自洽性判断
+  const n=buf.byteLength>=84?dv.getUint32(80,true):0;
+  if(84+n*50!==buf.byteLength) ascii=true;
+ }
+ if(ascii){
+  const txt=new TextDecoder().decode(new Uint8Array(buf));
+  const nums=txt.match(/facet\s+normal\s+([^]*?)endfacet/g)||[];
+  const pos=new Float32Array(nums.length*9), nor=new Float32Array(nums.length*9);
+  nums.forEach((f,i)=>{
+   const v=f.match(/-?\d+\.?\d*(?:[eE][-+]?\d+)?/g).map(Number);
+   for(let k=0;k<3;k++)for(let j=0;j<3;j++){nor[i*9+k*3+j]=v[j];pos[i*9+k*3+j]=v[3+k*3+j];}
+  });
+  return {pos,nor,count:nums.length};
+ }
+ const count=dv.getUint32(80,true);
+ const pos=new Float32Array(count*9), nor=new Float32Array(count*9);
+ let o=84;
+ for(let i=0;i<count;i++){
+  const nx=dv.getFloat32(o,true),ny=dv.getFloat32(o+4,true),nz=dv.getFloat32(o+8,true);o+=12;
+  for(let k=0;k<3;k++){
+   pos[i*9+k*3]=dv.getFloat32(o,true);pos[i*9+k*3+1]=dv.getFloat32(o+4,true);pos[i*9+k*3+2]=dv.getFloat32(o+8,true);o+=12;
+   nor[i*9+k*3]=nx;nor[i*9+k*3+1]=ny;nor[i*9+k*3+2]=nz;
+  }
+  o+=2;
+ }
+ return {pos,nor,count};
+}
+
+/* ---------- 焊接顶点 + 连通体标号（并查集） ---------- */
+function components(pos,count){
+ const map=new Map(), vid=new Int32Array(count*3); let nv=0;
+ const q=1e8;                                    // 0.01 微米量化（与 trimesh merge_vertices 的 1e-8 容差一致）
+ for(let i=0;i<count*3;i++){
+  const k=Math.round(pos[i*3]*q)+","+Math.round(pos[i*3+1]*q)+","+Math.round(pos[i*3+2]*q);
+  let v=map.get(k); if(v===undefined){v=nv++;map.set(k,v);}
+  vid[i]=v;
+ }
+ const par=new Int32Array(count).map((_,i)=>i);
+ const find=x=>{while(par[x]!==x){par[x]=par[par[x]];x=par[x];}return x;};
+ const uni=(a,b)=>{a=find(a);b=find(b);if(a!==b)par[b]=a;};
+ // 只沿“恰好被两个面共用”的边连通。CAD 里两个零件贴合时会共用边(非流形, 3+ 个面),
+ // 那种边不能算连通, 否则电机和外壳会被并成一个零件。trimesh 的 face_adjacency 也是这个规则。
+ const eA=new Map(), eB=new Map(), eN=new Map();
+ for(let t=0;t<count;t++)for(let e=0;e<3;e++){
+  const a=vid[t*3+e], b=vid[t*3+(e+1)%3];
+  if(a===b)continue;                                   // 退化边
+  const k=(a<b?a:b)*nv+(a<b?b:a);
+  const n=(eN.get(k)||0)+1; eN.set(k,n);
+  if(n===1)eA.set(k,t); else if(n===2)eB.set(k,t);
+ }
+ for(const [k,n] of eN) if(n===2) uni(eA.get(k),eB.get(k));
+ const lab=new Int32Array(count), remap=new Map(); let nc=0;
+ for(let t=0;t<count;t++){const r=find(t);let c=remap.get(r);if(c===undefined){c=nc++;remap.set(r,c);}lab[t]=c;}
+ const size=new Int32Array(nc); for(let t=0;t<count;t++)size[lab[t]]++;
+ return {lab,nc,size,nv};
+}
+
+/* ---------- WebGL ---------- */
+const VS=`#version 300 es
+in vec3 aPos; in vec3 aNrm; in float aComp; in float aState;
+uniform mat4 uMVP; uniform float uHover,uSel,uIso,uShowDel,uMode;
+out vec3 vN; out vec3 vC; flat out int vId;
+void main(){
+ bool del=aState>0.5;
+ bool hid=(del&&uShowDel<0.5)||(uIso>0.5&&abs(aComp-uSel)>0.5);
+ if(hid&&uMode<0.5){gl_Position=vec4(0.,0.,2.,1.);return;}   // 推出裁剪空间 = 不画
+ gl_Position=uMVP*vec4(aPos,1.);
+ vN=aNrm; vId=gl_VertexID/3;
+ vec3 c=del?vec3(.80,.28,.26):vec3(.72,.74,.76);
+ if(abs(aComp-uHover)<0.5)c=mix(c,vec3(.25,.72,.88),.55);
+ if(abs(aComp-uSel)<0.5)c=mix(c,vec3(.20,.62,.80),.72);
+ vC=c;
+}`;
+const FS=`#version 300 es
+precision highp float; precision highp int;
+in vec3 vN; in vec3 vC; flat in int vId;
+uniform float uMode; uniform vec3 uEye;
+out vec4 o;
+void main(){
+ if(uMode>0.5){
+  int id=vId+1;                                             // 0 留给背景
+  o=vec4(float(id&255)/255.,float((id>>8)&255)/255.,float((id>>16)&255)/255.,1.);
+  return;
+ }
+ vec3 n=normalize(vN); if(!gl_FrontFacing)n=-n;
+ float d=.34+.66*max(dot(n,normalize(uEye)),0.);
+ o=vec4(vC*d,1.);
+}`;
+function sh(gl,t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+ if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+
+const cv=$("cv"); let gl=cv.getContext("webgl2",{antialias:true,preserveDrawingBuffer:false});
+let prog,loc,vao,fbo,ftex,frb,fsize=0;
+if(!gl){$("drop").innerHTML="<b>浏览器不支持 WebGL2</b><div>换 Chrome / Edge / Firefox 新版本再试。</div>";}
+else{
+ prog=gl.createProgram();
+ gl.attachShader(prog,sh(gl,gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl,gl.FRAGMENT_SHADER,FS));
+ gl.linkProgram(prog);
+ if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
+ gl.useProgram(prog);
+ loc={};["uMVP","uHover","uSel","uIso","uShowDel","uMode","uEye"].forEach(k=>loc[k]=gl.getUniformLocation(prog,k));
+ gl.enable(gl.DEPTH_TEST);
+ fbo=gl.createFramebuffer();ftex=gl.createTexture();frb=gl.createRenderbuffer();
+}
+function fboSize(n){
+ if(fsize===n)return; fsize=n;
+ gl.bindTexture(gl.TEXTURE_2D,ftex);
+ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,n,n,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+ gl.bindRenderbuffer(gl.RENDERBUFFER,frb);
+ gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,n,n);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+ gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,ftex,0);
+ gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,frb);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+function upload(g){
+ vao=gl.createVertexArray();gl.bindVertexArray(vao);
+ const mk=(data,size,name)=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);
+  const l=gl.getAttribLocation(prog,name);gl.enableVertexAttribArray(l);
+  gl.vertexAttribPointer(l,size,gl.FLOAT,false,0,0);return b;};
+ mk(g.pos,3,"aPos");mk(g.nor,3,"aNrm");
+ const comp=new Float32Array(g.count*3);
+ for(let t=0;t<g.count;t++)comp[t*3]=comp[t*3+1]=comp[t*3+2]=g.lab[t];
+ mk(comp,1,"aComp");
+ g.stateBuf=mk(new Float32Array(g.count*3),1,"aState");
+}
+function pushState(){
+ const a=new Float32Array(G.count*3);
+ for(let t=0;t<G.count;t++){const v=G.del[G.lab[t]]?1:0;a[t*3]=a[t*3+1]=a[t*3+2]=v;}
+ gl.bindBuffer(gl.ARRAY_BUFFER,G.stateBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,a);
+}
+
+/* ---------- 相机 ---------- */
+const cam={th:-.9,ph:1.15,r:1,tgt:[0,0,0],pan:[0,0]};
+function eye(){const s=Math.sin(cam.ph);return [cam.tgt[0]+cam.r*s*Math.cos(cam.th),
+ cam.tgt[1]+cam.r*s*Math.sin(cam.th),cam.tgt[2]+cam.r*Math.cos(cam.ph)];}
+function draw(mode){
+ const w=cv.clientWidth,h=cv.clientHeight;
+ if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+ gl.viewport(0,0,cv.width,cv.height);
+ gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+ if(!G)return;
+ const e=eye(), v=M4.look(e,cam.tgt,[0,0,1]),
+  p=M4.persp(0.9,w/h,cam.r*.02,cam.r*8);
+ gl.uniformMatrix4fv(loc.uMVP,false,M4.mul(p,v));
+ gl.uniform3fv(loc.uEye,new Float32Array(nrm(sub(e,cam.tgt))));
+ gl.uniform1f(loc.uMode,mode||0);
+ gl.uniform1f(loc.uHover,G.hover??-1);gl.uniform1f(loc.uSel,G.sel??-1);
+ gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
+ gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
+}
+let raf=null; const render=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=null;draw(0);});};
+
+/* ---------- 可见率: 64 方向正交扫描, 只数“第一眼看到”的面 ---------- */
+function visibility(g){
+ fboSize(VPX);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,VPX,VPX);
+ gl.uniform1f(loc.uMode,1);gl.uniform1f(loc.uIso,0);gl.uniform1f(loc.uShowDel,1);
+ gl.uniform1f(loc.uHover,-1);gl.uniform1f(loc.uSel,-1);
+ gl.bindVertexArray(vao);
+ const seen=new Uint8Array(g.count), px=new Uint8Array(VPX*VPX*4);
+ const c=g.center, R=g.radius*1.05;
+ for(let i=0;i<NDIR;i++){
+  const y=1-2*(i+.5)/NDIR, s=Math.sqrt(Math.max(0,1-y*y)), a=Math.PI*(1+Math.sqrt(5))*(i+.5);
+  const d=[s*Math.cos(a),s*Math.sin(a),y];
+  const up=Math.abs(d[2])>.9?[1,0,0]:[0,0,1];
+  const e=[c[0]+d[0]*R*3,c[1]+d[1]*R*3,c[2]+d[2]*R*3];
+  const mvp=M4.mul(M4.ortho(-R,R,-R,R,R*.5,R*6),M4.look(e,c,up));
+  gl.uniformMatrix4fv(loc.uMVP,false,mvp);
+  gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES,0,g.count*3);
+  gl.readPixels(0,0,VPX,VPX,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  for(let k=0;k<px.length;k+=4){
+   const id=px[k]|(px[k+1]<<8)|(px[k+2]<<16);
+   if(id>0&&id<=g.count)seen[id-1]=1;
+  }
+ }
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+ const vis=new Float32Array(g.nc), hit=new Int32Array(g.nc);
+ for(let t=0;t<g.count;t++)if(seen[t])hit[g.lab[t]]++;
+ for(let c2=0;c2<g.nc;c2++)vis[c2]=g.size[c2]<SLIVER?1:hit[c2]/g.size[c2];
+ return vis;
+}
+
+/* ---------- 拾取 ---------- */
+function pick(mx,my){
+ const n=Math.max(cv.width,cv.height); fboSize(n);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,cv.width,cv.height);
+ gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+ const e=eye(),v=M4.look(e,cam.tgt,[0,0,1]),p=M4.persp(0.9,cv.width/cv.height,cam.r*.02,cam.r*8);
+ gl.uniformMatrix4fv(loc.uMVP,false,M4.mul(p,v));
+ gl.uniform1f(loc.uMode,1);
+ gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
+ gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
+ const px=new Uint8Array(4);
+ gl.readPixels(mx,cv.height-my,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+ const id=px[0]|(px[1]<<8)|(px[2]<<16);
+ return id>0&&id<=G.count?G.lab[id-1]:-1;
+}
+
+/* ---------- UI ---------- */
+function fmt(n){return n.toLocaleString("en-US");}
+function autoApply(){
+ const t=+$("thresh").value/100;
+ for(let c=0;c<G.nc;c++) G.del[c]=G.manual.has(c)?G.manual.get(c):(G.size[c]>=SLIVER&&G.vis[c]<t);
+ sync();
+}
+function sync(){
+ let kept=0,ndel=0,nreal=0;
+ for(let c=0;c<G.nc;c++){if(G.size[c]>=SLIVER)nreal++; if(G.del[c])ndel++;else kept+=G.size[c];}
+ G.kept=kept;
+ $("sComp").textContent=`${nreal-ndel} 留 / ${ndel} 删`;
+ $("sFace").textContent=`${fmt(kept)} / ${fmt(G.count)}`;
+ $("sCut").textContent=`−${(100*(1-kept/G.count)).toFixed(1)}%`;
+ $("foot").innerHTML=G.manual.size?`<span class="man">手动改动 ${G.manual.size} 处</span>`:"全部按阈值自动判定";
+ $("btnReset").disabled=!G.manual.size;
+ for(const tr of $("tb").children){
+  if(tr.dataset.c===undefined)continue;                  // 末尾那行“碎片”说明不是零件行
+  const c=+tr.dataset.c;
+  tr.classList.toggle("del",G.del[c]);tr.classList.toggle("keep",!G.del[c]);
+  tr.classList.toggle("sel",c===G.sel);
+  const td=tr.querySelector(".st");
+  td.textContent=(G.del[c]?"删除":"保留")+(G.manual.has(c)?" ✋":"");
+  td.classList.toggle("man",G.manual.has(c));
+ }
+ pushState();render();
+}
+function buildList(){
+ const tb=$("tb");tb.innerHTML="";
+ const order=[...Array(G.nc).keys()].filter(c=>G.size[c]>=SLIVER).sort((a,b)=>G.size[b]-G.size[a]);
+ G.order=order;
+ for(const c of order){
+  const tr=document.createElement("tr");tr.className="item";tr.dataset.c=c;
+  tr.innerHTML=`<td><span class="dot" style="background:hsl(${(c*47)%360} 45% 55%)"></span>#${c}</td>
+   <td>${fmt(G.size[c])}</td><td>${(100*G.vis[c]).toFixed(1)}%</td><td class="st"></td>`;
+  tr.onclick=e=>{ if(e.shiftKey||e.metaKey||e.ctrlKey){toggle(c);} else {G.sel=G.sel===c?-1:c;sync();} };
+  tr.ondblclick=()=>toggle(c);
+  tr.onmouseenter=()=>{G.hover=c;render();};
+  tr.onmouseleave=()=>{G.hover=-1;render();};
+  tb.appendChild(tr);
+ }
+ const sl=G.nc-order.length;
+ if(sl)tb.insertAdjacentHTML("beforeend",
+  `<tr><td colspan="4" style="color:var(--ink-3);text-align:center;padding:8px">另有 ${sl} 个 &lt;100 面的碎片，一律保留</td></tr>`);
+}
+function toggle(c){
+ const now=!G.del[c];
+ const auto=G.size[c]>=SLIVER&&G.vis[c]<(+$("thresh").value/100);
+ if(now===auto)G.manual.delete(c); else G.manual.set(c,now);
+ G.del[c]=now;sync();
+}
+async function busy(msg,fn){
+ $("busy").textContent=msg;$("busy").classList.remove("hide");
+ await new Promise(r=>setTimeout(r,16));
+ try{return fn();}finally{$("busy").classList.add("hide");}
+}
+async function load(file){
+ const buf=await file.arrayBuffer();
+ const g=await busy("解析 STL…",()=>parseSTL(buf));
+ if(!g.count){alert("没读到三角形，文件可能不是 STL");return;}
+ const cc=await busy(`焊接顶点 / 拆连通体（${fmt(g.count)} 面）…`,()=>components(g.pos,g.count));
+ Object.assign(g,cc);
+ let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+ for(let i=0;i<g.count*3;i++)for(let j=0;j<3;j++){
+  const v=g.pos[i*3+j];if(v<mn[j])mn[j]=v;if(v>mx[j])mx[j]=v;}
+ g.center=[0,1,2].map(j=>(mn[j]+mx[j])/2);
+ g.radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2||1;
+ g.name=file.name;g.manual=new Map();g.hover=-1;g.sel=-1;
+ G=g;upload(g);
+ cam.tgt=g.center.slice();cam.r=g.radius*3.2;
+ g.vis=await busy("从 64 个方向计算可见率…",()=>visibility(g));
+ g.del=new Array(g.nc).fill(false);
+ buildList();autoApply();
+ $("drop").classList.add("hide");
+ $("fname").textContent=file.name;
+ $("btnExport").disabled=false;
+ $("hint").innerHTML="左键拖动=旋转 · 滚轮=缩放 · 右键拖动=平移<br>点模型选中零件，双击（或 Shift+点）切换保留/删除";
+}
+function exportSTL(){
+ const keep=[];for(let t=0;t<G.count;t++)if(!G.del[G.lab[t]])keep.push(t);
+ const buf=new ArrayBuffer(84+keep.length*50),dv=new DataView(buf);
+ new TextEncoder().encodeInto("Binary STL: internal parts removed (stl_part_editor)",new Uint8Array(buf,0,80));
+ dv.setUint32(80,keep.length,true);
+ let o=84;
+ for(const t of keep){
+  dv.setFloat32(o,G.nor[t*9],true);dv.setFloat32(o+4,G.nor[t*9+1],true);dv.setFloat32(o+8,G.nor[t*9+2],true);o+=12;
+  for(let k=0;k<9;k++){dv.setFloat32(o,G.pos[t*9+k],true);o+=4;}
+  dv.setUint16(o,0,true);o+=2;
+ }
+ const base=G.name.replace(/\.stl$/i,"");
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([buf],{type:"model/stl"}));
+ a.download=base.endsWith("_ML")?base+".STL":base+"_ML.STL";
+ a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+
+/* ---------- 事件 ---------- */
+$("file").onchange=e=>{if(e.target.files[0])load(e.target.files[0]);};
+const dz=$("view");
+dz.addEventListener("dragover",e=>{e.preventDefault();$("drop").classList.add("over");});
+dz.addEventListener("dragleave",()=>$("drop").classList.remove("over"));
+dz.addEventListener("drop",e=>{e.preventDefault();$("drop").classList.remove("over");
+ if(e.dataTransfer.files[0])load(e.dataTransfer.files[0]);});
+$("thresh").oninput=()=>{$("threshV").textContent=$("thresh").value+"%";if(G)autoApply();};
+$("btnAuto").onclick=()=>{if(!G)return;G.manual.clear();autoApply();};
+$("btnReset").onclick=()=>{if(!G)return;G.manual.clear();autoApply();};
+$("btnAll").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++){G.del[c]=false;G.manual.set(c,false);}sync();};
+$("btnNone").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++)if(G.size[c]>=SLIVER){G.del[c]=true;G.manual.set(c,true);}sync();};
+$("btnExport").onclick=exportSTL;
+$("cbShow").onchange=$("cbIso").onchange=render;
+let drag=null;
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,b:e.button,moved:0};cv.setPointerCapture(e.pointerId);});
+cv.addEventListener("pointermove",e=>{
+ if(!drag){if(G){const c=pick(e.offsetX,e.offsetY);if(c!==G.hover){G.hover=c;render();}}return;}
+ const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+ drag.moved+=Math.abs(dx)+Math.abs(dy);
+ if(drag.b===0){cam.th-=dx*.008;cam.ph=Math.min(Math.PI-.02,Math.max(.02,cam.ph-dy*.008));}
+ else{const e2=eye(),f=nrm(sub(cam.tgt,e2)),r=nrm(cross(f,[0,0,1])),u=cross(r,f),k=cam.r*.0016;
+  for(let j=0;j<3;j++)cam.tgt[j]+=(-r[j]*dx+u[j]*dy)*k;}
+ render();
+});
+cv.addEventListener("pointerup",e=>{
+ const d=drag;drag=null;
+ if(!G||!d||d.moved>4)return;
+ const c=pick(e.offsetX,e.offsetY);
+ if(c<0){G.sel=-1;sync();return;}
+ if(e.shiftKey)toggle(c); else {G.sel=G.sel===c?-1:c;sync();
+  const tr=[...$("tb").children].find(x=>+x.dataset.c===c);if(tr)tr.scrollIntoView({block:"nearest"});}
+});
+cv.addEventListener("dblclick",e=>{if(!G)return;const c=pick(e.offsetX,e.offsetY);if(c>=0)toggle(c);});
+cv.addEventListener("contextmenu",e=>e.preventDefault());
+cv.addEventListener("wheel",e=>{e.preventDefault();cam.r*=Math.exp(e.deltaY*.0012);render();},{passive:false});
+addEventListener("resize",render);
+addEventListener("keydown",e=>{
+ if(!G)return;
+ if(e.key==="i"||e.key==="I"){$("cbIso").checked=!$("cbIso").checked;render();}
+ if(e.key==="h"||e.key==="H"){$("cbShow").checked=!$("cbShow").checked;render();}
+ if((e.key==="Delete"||e.key==="Backspace")&&G.sel>=0)toggle(G.sel);
+});
+render();
+</script>
