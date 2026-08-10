@@ -48,6 +48,11 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    vertex attribute — that is what paints "this face is visible from outside" orange, both on the
    selected part and (in 外露高亮 mode) across every part marked for deletion. `G.hit[c]` keeps the
    per-component visible-face count shown in the footer.
+   The two remaining view options interact deliberately: 透视待删零件 off normally culls
+   delete-marked parts entirely (preview of the export), **except** faces with `aSeen` while 标出外露面
+   is on — those stay, painted orange, so the clean preview still shows exactly where the outer
+   surface would lose material. Don't "simplify" that exception away; without it the highlight has
+   nothing to draw in preview mode, which is the mode where it matters most.
 4. **`autoApply()` / `sync()`** — effective state = manual override if present, else
    `visibility < threshold`. `sync()` rewrites the per-vertex `aState` buffer and refreshes the
    table. It must skip table rows without `dataset.c` — the last row is the "N 个碎片" note, not a
@@ -64,8 +69,11 @@ so toggling "show deleted" / "isolate" costs nothing.
 
 The shaded view draws in up to two passes, selected by `uPass`. Pass 0 is the normal scene. Pass 1
 is the **through-wall highlight**: depth test off, backface culling on, blending on, and the vertex
-shader drops everything except the selected component — so an internal part shows through the
-housing instead of being invisible behind it. An earlier attempt ghosted *the rest of the model*
+shader keeps only the selected component (alpha .66) plus, when 透视待删零件 is on, every
+delete-marked component (alpha .24) — so internal parts show through the housing instead of being
+invisible behind it. This pass is always available; there is no user-facing toggle for it, and
+`frame()` is likewise always applied on selection (both were checkboxes once — the user removed
+them as noise). An earlier attempt ghosted *the rest of the model*
 with alpha instead; don't go back to that. Layered unsorted transparency (shell front faces + back
 faces + other internals) accumulates into a white wash and the part gets harder to see, not easier.
 

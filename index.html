@@ -66,6 +66,9 @@ tr.keep td.st{color:var(--ok)}
 td.st{letter-spacing:.02em}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
 .man{color:var(--warn)}
+.sub{font-size:.72rem;color:var(--ink-3);line-height:1.6;margin:-4px 0 2px 22px}
+.key{border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:.68rem;color:var(--ink-3);
+ font-family:ui-monospace,Menlo,monospace}
 .exp{color:#e8940f}
 .hid{color:var(--ok)}
 footer b{font-family:ui-monospace,Menlo,monospace}
@@ -100,14 +103,12 @@ footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:8px;al
    <div class="stat"><span>减少</span><b id="sCut">—</b></div>
   </div>
   <div class="panel">
-   <div class="row" style="flex-wrap:wrap;gap:6px 14px">
-    <label class="row" style="gap:5px"><input type="checkbox" id="cbXray" checked> 穿透显示选中件</label>
-    <label class="row" style="gap:5px"><input type="checkbox" id="cbFocus" checked> 选中即聚焦</label>
-    <label class="row" style="gap:5px"><input type="checkbox" id="cbExp"> 外露高亮</label>
-    <label class="row" style="gap:5px"><input type="checkbox" id="cbShow" checked> 显示被删零件</label>
-    <label class="row" style="gap:5px"><input type="checkbox" id="cbIso"> 只看选中</label>
-   </div>
-   <div class="row"><button id="btnAll">全保留</button><button id="btnNone">全删除</button><button id="btnAuto">按阈值重算</button></div>
+   <label class="row" style="gap:6px"><input type="checkbox" id="cbExp"> 标出外露面 <span class="key">E</span></label>
+   <div class="sub">把所有<b>待删零件露在外表面的部分</b>标成橙色。<br>
+    一片橙色都没有 = 删掉它们外观零变化；橙色成片 = 那里会留豁口。</div>
+   <label class="row" style="gap:6px"><input type="checkbox" id="cbShow" checked> 透视待删零件 <span class="key">H</span></label>
+   <div class="sub">让待删零件透过外壳以半透明红色显出来，看清里面塞了些什么；<br>
+    取消勾选 = 预览剔除后的干净结果。</div>
   </div>
   <div id="list"><table><thead><tr><th>零件</th><th>面数</th><th>可见率</th><th>状态</th></tr></thead><tbody id="tb"></tbody></table></div>
   <footer><span class="row" id="foot">等待文件…</span></footer>
@@ -203,13 +204,16 @@ function components(pos,count){
 /* ---------- WebGL ---------- */
 const VS=`#version 300 es
 in vec3 aPos; in vec3 aNrm; in float aComp; in float aState; in float aSeen;
-uniform mat4 uMVP; uniform float uHover,uSel,uIso,uShowDel,uMode,uXray,uExpose,uPass;
+uniform mat4 uMVP; uniform float uHover,uSel,uShowDel,uMode,uExpose,uPass;
 out vec3 vN; out vec3 vC; out float vA; flat out int vId;
 void main(){
  bool del=aState>0.5, sel=abs(aComp-uSel)<0.5;
- bool hid=!sel&&((del&&uShowDel<0.5)||(uIso>0.5&&uSel>=0.)); // 选中件永远可见
- // uPass=1 是"穿透遍": 关掉深度测试只画选中件, 让它透过外壳显出来
- if(hid||(uMode<0.5&&uPass>0.5&&!sel)){gl_Position=vec4(0.,0.,2.,1.);return;}
+ // 取消透视 = 预览剔除结果; 但"标出外露面"时, 待删件露在外面的那些面仍然画出来(橙色),
+ // 这样就能在干净结果上直接看到"删掉后外表面哪里会缺"
+ bool hid=!sel&&del&&uShowDel<0.5&&!(uExpose>0.5&&aSeen>0.5);
+ // uPass=1 是"穿透遍": 关掉深度测试, 把选中件和待删件透过外壳画出来
+ bool thru=sel||(del&&uShowDel>0.5);
+ if(hid||(uMode<0.5&&uPass>0.5&&!thru)){gl_Position=vec4(0.,0.,2.,1.);return;}
  gl_Position=uMVP*vec4(aPos,1.);
  vN=aNrm; vId=gl_VertexID/3;
  vec3 c=del?vec3(.80,.28,.26):vec3(.72,.74,.76);
@@ -217,7 +221,7 @@ void main(){
  // 橙色 = 这一面从外面看得见。选中件上永远标, "外露高亮"模式下所有待删件都标
  if(aSeen>0.5&&(sel||(uExpose>0.5&&del)))c=vec3(.97,.60,.13);
  if(abs(aComp-uHover)<0.5&&!sel)c=mix(c,vec3(.25,.72,.88),.5);
- vC=c; vA=uPass>0.5?.62:1.;
+ vC=c; vA=uPass>0.5?(sel?.66:.24):1.;         // 穿透遍: 选中件实一点, 其它待删件淡一点
 }`;
 const FS=`#version 300 es
 precision highp float; precision highp int;
@@ -246,7 +250,7 @@ else{
  gl.linkProgram(prog);
  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
  gl.useProgram(prog);
- loc={};["uMVP","uHover","uSel","uIso","uShowDel","uMode","uEye","uXray","uExpose","uPass"]
+ loc={};["uMVP","uHover","uSel","uShowDel","uMode","uEye","uExpose","uPass"]
   .forEach(k=>loc[k]=gl.getUniformLocation(prog,k));
  gl.enable(gl.DEPTH_TEST);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
  fbo=gl.createFramebuffer();ftex=gl.createTexture();frb=gl.createRenderbuffer();
@@ -304,11 +308,11 @@ function draw(mode){
  gl.uniform3fv(loc.uEye,new Float32Array(nrm(sub(e,cam.tgt))));
  gl.uniform1f(loc.uMode,mode||0);
  gl.uniform1f(loc.uHover,G.hover??-1);gl.uniform1f(loc.uSel,G.sel??-1);
- gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
- gl.uniform1f(loc.uXray,$("cbXray").checked?1:0);gl.uniform1f(loc.uExpose,$("cbExp").checked?1:0);
+ gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
+ gl.uniform1f(loc.uExpose,$("cbExp").checked?1:0);
  gl.bindVertexArray(vao);
  gl.uniform1f(loc.uPass,0);gl.drawArrays(gl.TRIANGLES,0,G.count*3);      // 正常一遍
- if(!mode&&$("cbXray").checked&&G.sel>=0&&!$("cbIso").checked){          // 再把选中件"穿透"叠上去
+ if(!mode&&(G.sel>=0||$("cbShow").checked)){                            // 再把选中件/待删件"穿透"叠上去
   gl.enable(gl.BLEND);gl.depthMask(false);gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.CULL_FACE);                                              // 只画正面, 否则背面会盖住正面
   gl.uniform1f(loc.uPass,1);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
@@ -338,16 +342,16 @@ function frame(c){                                           // 相机飞到这�
 function select(c,doFrame){
  G.sel=(G.sel===c)?-1:c;
  sync();
- if(G.sel>=0&&doFrame!==false&&$("cbFocus").checked)frame(G.sel);
+ if(G.sel>=0&&doFrame!==false)frame(G.sel);
 }
 
 /* ---------- 可见率: 64 方向正交扫描, 只数“第一眼看到”的面 ---------- */
 function visibility(g){
  fboSize(VPX);
  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,VPX,VPX);
- gl.uniform1f(loc.uMode,1);gl.uniform1f(loc.uIso,0);gl.uniform1f(loc.uShowDel,1);
+ gl.uniform1f(loc.uMode,1);gl.uniform1f(loc.uShowDel,1);
  gl.uniform1f(loc.uHover,-1);gl.uniform1f(loc.uSel,-1);
- gl.uniform1f(loc.uXray,0);gl.uniform1f(loc.uExpose,0);gl.uniform1f(loc.uPass,0);
+ gl.uniform1f(loc.uExpose,0);gl.uniform1f(loc.uPass,0);
  gl.bindVertexArray(vao);
  const seen=new Uint8Array(g.count), px=new Uint8Array(VPX*VPX*4);
  const c=g.center, R=g.radius*1.05;
@@ -382,8 +386,8 @@ function pick(mx,my){
  const e=eye(),v=M4.look(e,cam.tgt,[0,0,1]),p=M4.persp(0.9,cv.width/cv.height,cam.r*.02,cam.r*8);
  gl.uniformMatrix4fv(loc.uMVP,false,M4.mul(p,v));
  gl.uniform1f(loc.uMode,1);
- gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
- gl.uniform1f(loc.uXray,0);gl.uniform1f(loc.uPass,0);gl.uniform1f(loc.uSel,G.sel??-1);
+ gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
+ gl.uniform1f(loc.uPass,0);gl.uniform1f(loc.uSel,G.sel??-1);
  gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
  const px=new Uint8Array(4);
  gl.readPixels(mx,cv.height-my,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);
@@ -484,7 +488,7 @@ async function load(file){
  $("btnExport").disabled=false;
  $("hint").innerHTML="左键拖动=旋转 · 滚轮=缩放 · 右键拖动=平移 · 点模型/列表选中零件，双击（或 Shift+点）切换保留/删除"
  +"<br><b style=\"color:#e8940f\">橙色</b>=这一面从外面看得见（选中件上标出；E 键给所有待删件标）"
- +" · X=穿透 · F=聚焦 · I=只看选中 · H=显示被删件";
+ +" · E=标出外露面 · H=透视待删件 · F=重新聚焦";
 }
 function exportSTL(){
  const keep=[];for(let t=0;t<G.count;t++)if(!G.del[G.lab[t]])keep.push(t);
@@ -512,12 +516,9 @@ dz.addEventListener("dragleave",()=>$("drop").classList.remove("over"));
 dz.addEventListener("drop",e=>{e.preventDefault();$("drop").classList.remove("over");
  if(e.dataTransfer.files[0])load(e.dataTransfer.files[0]);});
 $("thresh").oninput=()=>{$("threshV").textContent=$("thresh").value+"%";if(G)autoApply();};
-$("btnAuto").onclick=()=>{if(!G)return;G.manual.clear();autoApply();};
 $("btnReset").onclick=()=>{if(!G)return;G.manual.clear();autoApply();};
-$("btnAll").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++){G.del[c]=false;G.manual.set(c,false);}sync();};
-$("btnNone").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++)if(G.size[c]>=SLIVER){G.del[c]=true;G.manual.set(c,true);}sync();};
 $("btnExport").onclick=exportSTL;
-$("cbShow").onchange=$("cbIso").onchange=$("cbXray").onchange=$("cbExp").onchange=render;
+$("cbShow").onchange=$("cbExp").onchange=render;
 let drag=null;
 cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,b:e.button,moved:0};cv.setPointerCapture(e.pointerId);});
 cv.addEventListener("pointermove",e=>{
@@ -544,9 +545,7 @@ addEventListener("resize",render);
 addEventListener("keydown",e=>{
  if(!G)return;
  const k=e.key.toLowerCase();
- if(k==="i"){$("cbIso").checked=!$("cbIso").checked;render();}
  if(k==="h"){$("cbShow").checked=!$("cbShow").checked;render();}
- if(k==="x"){$("cbXray").checked=!$("cbXray").checked;render();}
  if(k==="e"){$("cbExp").checked=!$("cbExp").checked;render();}
  if(k==="f"&&G.sel>=0)frame(G.sel);
  if((e.key==="Delete"||e.key==="Backspace")&&G.sel>=0)toggle(G.sel);
