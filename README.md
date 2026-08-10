@@ -70,9 +70,20 @@ xdg-open index.html      # 或者直接双击；macOS 用 open index.html
 
 没有构建步骤，没有依赖，`index.html` 就是全部。
 
-### 批量处理
+### 批量处理（命令行）
 
-单文件手工修适合个别不满意的 link。整个机器人几十个 mesh 时，用同判据的命令行版本（`vis_split.py`，基于 trimesh + embree）跑批，再拿这个页面修个别件——两边的连通体拆分规则、可见率算法、100 面碎片规则完全一致，结果可以互相替换。
+网页版适合逐个确认、手动修正。整个机器人几十个 mesh 时用 `cli/vis_split.py` 跑批——同一套判据的 Python 实现（trimesh + Embree），连通体拆分规则、可见率算法、100 面碎片规则与网页版完全一致，两边结果可以互相替换。
+
+```bash
+pip install -r cli/requirements.txt
+
+python cli/vis_split.py <目录或文件>            # 默认阈值 0.05，输出同目录、文件名加 _ML
+python cli/vis_split.py meshes/ --thresh 0.15 -o meshes_ml015/
+python cli/vis_split.py part.STL --report       # 打印每个连通体的面数/可见率/判定
+python cli/vis_split.py meshes/ --dry-run       # 只统计不写文件
+```
+
+跑完会给一张汇总表（每个文件的面数变化、删了几个零件），并单独列出**可见率落在阈值附近的零件**——那些就是需要拖进网页版人工过一眼的。
 
 ## 技术栈
 

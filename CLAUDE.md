@@ -5,7 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-xdg-open index.html                  # Run it — no build step, no dependencies
+xdg-open index.html                  # Run the GUI — no build step, no dependencies
+
+pip install -r cli/requirements.txt  # CLI counterpart (batch mode)
+python cli/vis_split.py <dir> --report --dry-run
 
 python3 -m http.server 8080          # Only needed when a file:// restriction gets in the way
                                      # (or to test with browser automation, which refuses file://)
@@ -20,7 +23,7 @@ offline" is the product, not an implementation detail.
 
 ## Architecture
 
-`index.html` is the entire application (~700 lines: `<style>`, markup, one `<script>`). Everything
+`index.html` is the entire browser application (~700 lines: `<style>`, markup, one `<script>`). Everything
 runs client-side; no STL ever leaves the machine. Sections in the script are demarcated by
 `/* ---------- ... ---------- */` banner comments.
 
@@ -73,8 +76,10 @@ threshold behavior. `G.del` is the resolved per-component decision that the shad
   other repos).
 - `<meta charset="utf-8">` must stay on line 1 — without it, opening the file over `file://` renders
   the Chinese UI as mojibake.
-- Keep the criterion identical to the `vis_split.py` CLI counterpart (living in the author's
-  isaac_workspace): same welding tolerance, same manifold-edge rule, same 100-face sliver floor,
-  same visibility definition. If one side changes, change both, or they stop being interchangeable.
+- **`index.html` and `cli/vis_split.py` implement the same criterion twice** (WebGL vs
+  trimesh+Embree) and must stay interchangeable: same welding tolerance, same manifold-edge rule,
+  same 100-face sliver floor, same visibility definition, same default threshold. Change one, change
+  the other. The reference check: `chest_pitch_link.STL` (106,586 faces) must yield 46 components
+  and 41,968 kept faces at threshold 0.05 in both.
 - Never modify geometry. Deleting whole connected components is the only permitted edit; the export
   must stay a strict subset of the input triangles. No decimation, no remeshing, no transforms.
