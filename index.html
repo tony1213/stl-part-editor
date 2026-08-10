@@ -66,6 +66,9 @@ tr.keep td.st{color:var(--ok)}
 td.st{letter-spacing:.02em}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
 .man{color:var(--warn)}
+.exp{color:#e8940f}
+.hid{color:var(--ok)}
+footer b{font-family:ui-monospace,Menlo,monospace}
 footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ground) 72%,transparent);
  font-size:.85rem;color:var(--ink);letter-spacing:.05em}
@@ -97,7 +100,10 @@ footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:8px;al
    <div class="stat"><span>减少</span><b id="sCut">—</b></div>
   </div>
   <div class="panel">
-   <div class="row">
+   <div class="row" style="flex-wrap:wrap;gap:6px 14px">
+    <label class="row" style="gap:5px"><input type="checkbox" id="cbXray" checked> 穿透显示选中件</label>
+    <label class="row" style="gap:5px"><input type="checkbox" id="cbFocus" checked> 选中即聚焦</label>
+    <label class="row" style="gap:5px"><input type="checkbox" id="cbExp"> 外露高亮</label>
     <label class="row" style="gap:5px"><input type="checkbox" id="cbShow" checked> 显示被删零件</label>
     <label class="row" style="gap:5px"><input type="checkbox" id="cbIso"> 只看选中</label>
    </div>
@@ -196,23 +202,26 @@ function components(pos,count){
 
 /* ---------- WebGL ---------- */
 const VS=`#version 300 es
-in vec3 aPos; in vec3 aNrm; in float aComp; in float aState;
-uniform mat4 uMVP; uniform float uHover,uSel,uIso,uShowDel,uMode;
-out vec3 vN; out vec3 vC; flat out int vId;
+in vec3 aPos; in vec3 aNrm; in float aComp; in float aState; in float aSeen;
+uniform mat4 uMVP; uniform float uHover,uSel,uIso,uShowDel,uMode,uXray,uExpose,uPass;
+out vec3 vN; out vec3 vC; out float vA; flat out int vId;
 void main(){
- bool del=aState>0.5;
- bool hid=(del&&uShowDel<0.5)||(uIso>0.5&&abs(aComp-uSel)>0.5);
- if(hid&&uMode<0.5){gl_Position=vec4(0.,0.,2.,1.);return;}   // 推出裁剪空间 = 不画
+ bool del=aState>0.5, sel=abs(aComp-uSel)<0.5;
+ bool hid=!sel&&((del&&uShowDel<0.5)||(uIso>0.5&&uSel>=0.)); // 选中件永远可见
+ // uPass=1 是"穿透遍": 关掉深度测试只画选中件, 让它透过外壳显出来
+ if(hid||(uMode<0.5&&uPass>0.5&&!sel)){gl_Position=vec4(0.,0.,2.,1.);return;}
  gl_Position=uMVP*vec4(aPos,1.);
  vN=aNrm; vId=gl_VertexID/3;
  vec3 c=del?vec3(.80,.28,.26):vec3(.72,.74,.76);
- if(abs(aComp-uHover)<0.5)c=mix(c,vec3(.25,.72,.88),.55);
- if(abs(aComp-uSel)<0.5)c=mix(c,vec3(.20,.62,.80),.72);
- vC=c;
+ if(sel)c=vec3(.20,.58,.82);
+ // 橙色 = 这一面从外面看得见。选中件上永远标, "外露高亮"模式下所有待删件都标
+ if(aSeen>0.5&&(sel||(uExpose>0.5&&del)))c=vec3(.97,.60,.13);
+ if(abs(aComp-uHover)<0.5&&!sel)c=mix(c,vec3(.25,.72,.88),.5);
+ vC=c; vA=uPass>0.5?.62:1.;
 }`;
 const FS=`#version 300 es
 precision highp float; precision highp int;
-in vec3 vN; in vec3 vC; flat in int vId;
+in vec3 vN; in vec3 vC; in float vA; flat in int vId;
 uniform float uMode; uniform vec3 uEye;
 out vec4 o;
 void main(){
@@ -223,7 +232,7 @@ void main(){
  }
  vec3 n=normalize(vN); if(!gl_FrontFacing)n=-n;
  float d=.34+.66*max(dot(n,normalize(uEye)),0.);
- o=vec4(vC*d,1.);
+ o=vec4(vC*d,vA);
 }`;
 function sh(gl,t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
@@ -237,8 +246,9 @@ else{
  gl.linkProgram(prog);
  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
  gl.useProgram(prog);
- loc={};["uMVP","uHover","uSel","uIso","uShowDel","uMode","uEye"].forEach(k=>loc[k]=gl.getUniformLocation(prog,k));
- gl.enable(gl.DEPTH_TEST);
+ loc={};["uMVP","uHover","uSel","uIso","uShowDel","uMode","uEye","uXray","uExpose","uPass"]
+  .forEach(k=>loc[k]=gl.getUniformLocation(prog,k));
+ gl.enable(gl.DEPTH_TEST);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
  fbo=gl.createFramebuffer();ftex=gl.createTexture();frb=gl.createRenderbuffer();
 }
 function fboSize(n){
@@ -265,11 +275,17 @@ function upload(g){
  for(let t=0;t<g.count;t++)comp[t*3]=comp[t*3+1]=comp[t*3+2]=g.lab[t];
  mk(comp,1,"aComp");
  g.stateBuf=mk(new Float32Array(g.count*3),1,"aState");
+ g.seenBuf=mk(new Float32Array(g.count*3),1,"aSeen");
 }
 function pushState(){
  const a=new Float32Array(G.count*3);
  for(let t=0;t<G.count;t++){const v=G.del[G.lab[t]]?1:0;a[t*3]=a[t*3+1]=a[t*3+2]=v;}
  gl.bindBuffer(gl.ARRAY_BUFFER,G.stateBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,a);
+}
+function pushSeen(g){                                        // 每个面是否"从外面看得见"
+ const a=new Float32Array(g.count*3);
+ for(let t=0;t<g.count;t++){const v=g.seen[t];a[t*3]=a[t*3+1]=a[t*3+2]=v;}
+ gl.bindBuffer(gl.ARRAY_BUFFER,g.seenBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,a);
 }
 
 /* ---------- 相机 ---------- */
@@ -289,9 +305,41 @@ function draw(mode){
  gl.uniform1f(loc.uMode,mode||0);
  gl.uniform1f(loc.uHover,G.hover??-1);gl.uniform1f(loc.uSel,G.sel??-1);
  gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
- gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
+ gl.uniform1f(loc.uXray,$("cbXray").checked?1:0);gl.uniform1f(loc.uExpose,$("cbExp").checked?1:0);
+ gl.bindVertexArray(vao);
+ gl.uniform1f(loc.uPass,0);gl.drawArrays(gl.TRIANGLES,0,G.count*3);      // 正常一遍
+ if(!mode&&$("cbXray").checked&&G.sel>=0&&!$("cbIso").checked){          // 再把选中件"穿透"叠上去
+  gl.enable(gl.BLEND);gl.depthMask(false);gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);                                              // 只画正面, 否则背面会盖住正面
+  gl.uniform1f(loc.uPass,1);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
+  gl.disable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);gl.disable(gl.BLEND);
+ }
 }
 let raf=null; const render=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=null;draw(0);});};
+
+/* ---------- 选中 / 聚焦 ---------- */
+let anim=null;
+function frame(c){                                           // 相机飞到这个零件上
+ if(!G||c<0)return;
+ const t=[0,1,2].map(j=>(G.cmin[c*3+j]+G.cmax[c*3+j])/2);
+ // 零件居中并适当放大，但相机不能钻进外壳里面——否则半透明的壳会糊满屏幕
+ const pr=Math.hypot(G.cmax[c*3]-G.cmin[c*3],G.cmax[c*3+1]-G.cmin[c*3+1],
+   G.cmax[c*3+2]-G.cmin[c*3+2])/2;
+ const r=Math.max(pr*4.0, G.radius*1.5);
+ const t0=cam.tgt.slice(), r0=cam.r, st=performance.now();
+ if(anim)cancelAnimationFrame(anim);
+ (function step(){
+  const k=Math.min(1,(performance.now()-st)/280), e=k<.5?2*k*k:1-2*(1-k)*(1-k);   // ease-in-out
+  cam.tgt=t0.map((v,j)=>v+(t[j]-v)*e); cam.r=r0+(r-r0)*e;
+  draw(0);
+  anim=k<1?requestAnimationFrame(step):null;
+ })();
+}
+function select(c,doFrame){
+ G.sel=(G.sel===c)?-1:c;
+ sync();
+ if(G.sel>=0&&doFrame!==false&&$("cbFocus").checked)frame(G.sel);
+}
 
 /* ---------- 可见率: 64 方向正交扫描, 只数“第一眼看到”的面 ---------- */
 function visibility(g){
@@ -299,6 +347,7 @@ function visibility(g){
  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,VPX,VPX);
  gl.uniform1f(loc.uMode,1);gl.uniform1f(loc.uIso,0);gl.uniform1f(loc.uShowDel,1);
  gl.uniform1f(loc.uHover,-1);gl.uniform1f(loc.uSel,-1);
+ gl.uniform1f(loc.uXray,0);gl.uniform1f(loc.uExpose,0);gl.uniform1f(loc.uPass,0);
  gl.bindVertexArray(vao);
  const seen=new Uint8Array(g.count), px=new Uint8Array(VPX*VPX*4);
  const c=g.center, R=g.radius*1.05;
@@ -321,6 +370,7 @@ function visibility(g){
  const vis=new Float32Array(g.nc), hit=new Int32Array(g.nc);
  for(let t=0;t<g.count;t++)if(seen[t])hit[g.lab[t]]++;
  for(let c2=0;c2<g.nc;c2++)vis[c2]=g.size[c2]<SLIVER?1:hit[c2]/g.size[c2];
+ g.seen=seen; g.hit=hit; pushSeen(g);                        // 逐面的可见性留着给"外露高亮"用
  return vis;
 }
 
@@ -333,6 +383,7 @@ function pick(mx,my){
  gl.uniformMatrix4fv(loc.uMVP,false,M4.mul(p,v));
  gl.uniform1f(loc.uMode,1);
  gl.uniform1f(loc.uIso,$("cbIso").checked?1:0);gl.uniform1f(loc.uShowDel,$("cbShow").checked?1:0);
+ gl.uniform1f(loc.uXray,0);gl.uniform1f(loc.uPass,0);gl.uniform1f(loc.uSel,G.sel??-1);
  gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,G.count*3);
  const px=new Uint8Array(4);
  gl.readPixels(mx,cv.height-my,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);
@@ -355,7 +406,15 @@ function sync(){
  $("sComp").textContent=`${nreal-ndel} 留 / ${ndel} 删`;
  $("sFace").textContent=`${fmt(kept)} / ${fmt(G.count)}`;
  $("sCut").textContent=`−${(100*(1-kept/G.count)).toFixed(1)}%`;
- $("foot").innerHTML=G.manual.size?`<span class="man">手动改动 ${G.manual.size} 处</span>`:"全部按阈值自动判定";
+ const c0=G.sel;
+ if(c0>=0&&G.size){                                        // 选中时: 直接告诉用户"它露出来多少"
+  const ex=G.hit?G.hit[c0]:0;
+  $("foot").innerHTML=`<b>#${c0}</b> · ${fmt(G.size[c0])} 面 · 可见率 ${(100*G.vis[c0]).toFixed(1)}%`
+   +(ex?` · <span class="exp">露出 ${fmt(ex)} 面（橙色）</span>`:` · <span class="hid">完全看不见，可放心删</span>`)
+   +(G.manual.size?` · <span class="man">手动 ${G.manual.size} 处</span>`:"");
+ }else{
+  $("foot").innerHTML=G.manual.size?`<span class="man">手动改动 ${G.manual.size} 处</span>`:"全部按阈值自动判定";
+ }
  $("btnReset").disabled=!G.manual.size;
  for(const tr of $("tb").children){
   if(tr.dataset.c===undefined)continue;                  // 末尾那行“碎片”说明不是零件行
@@ -376,7 +435,7 @@ function buildList(){
   const tr=document.createElement("tr");tr.className="item";tr.dataset.c=c;
   tr.innerHTML=`<td><span class="dot" style="background:hsl(${(c*47)%360} 45% 55%)"></span>#${c}</td>
    <td>${fmt(G.size[c])}</td><td>${(100*G.vis[c]).toFixed(1)}%</td><td class="st"></td>`;
-  tr.onclick=e=>{ if(e.shiftKey||e.metaKey||e.ctrlKey){toggle(c);} else {G.sel=G.sel===c?-1:c;sync();} };
+  tr.onclick=e=>{ if(e.shiftKey||e.metaKey||e.ctrlKey){toggle(c);} else select(c); };
   tr.ondblclick=()=>toggle(c);
   tr.onmouseenter=()=>{G.hover=c;render();};
   tr.onmouseleave=()=>{G.hover=-1;render();};
@@ -403,9 +462,15 @@ async function load(file){
  if(!g.count){alert("没读到三角形，文件可能不是 STL");return;}
  const cc=await busy(`焊接顶点 / 拆连通体（${fmt(g.count)} 面）…`,()=>components(g.pos,g.count));
  Object.assign(g,cc);
+ // 整体包围盒 + 每个连通体的包围盒（聚焦时用）
+ g.cmin=new Float32Array(g.nc*3).fill(1e9); g.cmax=new Float32Array(g.nc*3).fill(-1e9);
  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
- for(let i=0;i<g.count*3;i++)for(let j=0;j<3;j++){
-  const v=g.pos[i*3+j];if(v<mn[j])mn[j]=v;if(v>mx[j])mx[j]=v;}
+ for(let t=0;t<g.count;t++){const c=g.lab[t];
+  for(let k=0;k<3;k++)for(let j=0;j<3;j++){
+   const v=g.pos[t*9+k*3+j];
+   if(v<mn[j])mn[j]=v; if(v>mx[j])mx[j]=v;
+   if(v<g.cmin[c*3+j])g.cmin[c*3+j]=v; if(v>g.cmax[c*3+j])g.cmax[c*3+j]=v;
+  }}
  g.center=[0,1,2].map(j=>(mn[j]+mx[j])/2);
  g.radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2||1;
  g.name=file.name;g.manual=new Map();g.hover=-1;g.sel=-1;
@@ -417,7 +482,9 @@ async function load(file){
  $("drop").classList.add("hide");
  $("fname").textContent=file.name;
  $("btnExport").disabled=false;
- $("hint").innerHTML="左键拖动=旋转 · 滚轮=缩放 · 右键拖动=平移<br>点模型选中零件，双击（或 Shift+点）切换保留/删除";
+ $("hint").innerHTML="左键拖动=旋转 · 滚轮=缩放 · 右键拖动=平移 · 点模型/列表选中零件，双击（或 Shift+点）切换保留/删除"
+ +"<br><b style=\"color:#e8940f\">橙色</b>=这一面从外面看得见（选中件上标出；E 键给所有待删件标）"
+ +" · X=穿透 · F=聚焦 · I=只看选中 · H=显示被删件";
 }
 function exportSTL(){
  const keep=[];for(let t=0;t<G.count;t++)if(!G.del[G.lab[t]])keep.push(t);
@@ -450,7 +517,7 @@ $("btnReset").onclick=()=>{if(!G)return;G.manual.clear();autoApply();};
 $("btnAll").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++){G.del[c]=false;G.manual.set(c,false);}sync();};
 $("btnNone").onclick=()=>{if(!G)return;for(let c=0;c<G.nc;c++)if(G.size[c]>=SLIVER){G.del[c]=true;G.manual.set(c,true);}sync();};
 $("btnExport").onclick=exportSTL;
-$("cbShow").onchange=$("cbIso").onchange=render;
+$("cbShow").onchange=$("cbIso").onchange=$("cbXray").onchange=$("cbExp").onchange=render;
 let drag=null;
 cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,b:e.button,moved:0};cv.setPointerCapture(e.pointerId);});
 cv.addEventListener("pointermove",e=>{
@@ -467,7 +534,7 @@ cv.addEventListener("pointerup",e=>{
  if(!G||!d||d.moved>4)return;
  const c=pick(e.offsetX,e.offsetY);
  if(c<0){G.sel=-1;sync();return;}
- if(e.shiftKey)toggle(c); else {G.sel=G.sel===c?-1:c;sync();
+ if(e.shiftKey)toggle(c); else {select(c,false);
   const tr=[...$("tb").children].find(x=>+x.dataset.c===c);if(tr)tr.scrollIntoView({block:"nearest"});}
 });
 cv.addEventListener("dblclick",e=>{if(!G)return;const c=pick(e.offsetX,e.offsetY);if(c>=0)toggle(c);});
@@ -476,8 +543,12 @@ cv.addEventListener("wheel",e=>{e.preventDefault();cam.r*=Math.exp(e.deltaY*.001
 addEventListener("resize",render);
 addEventListener("keydown",e=>{
  if(!G)return;
- if(e.key==="i"||e.key==="I"){$("cbIso").checked=!$("cbIso").checked;render();}
- if(e.key==="h"||e.key==="H"){$("cbShow").checked=!$("cbShow").checked;render();}
+ const k=e.key.toLowerCase();
+ if(k==="i"){$("cbIso").checked=!$("cbIso").checked;render();}
+ if(k==="h"){$("cbShow").checked=!$("cbShow").checked;render();}
+ if(k==="x"){$("cbXray").checked=!$("cbXray").checked;render();}
+ if(k==="e"){$("cbExp").checked=!$("cbExp").checked;render();}
+ if(k==="f"&&G.sel>=0)frame(G.sel);
  if((e.key==="Delete"||e.key==="Backspace")&&G.sel>=0)toggle(G.sel);
 });
 render();

@@ -44,6 +44,10 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    from outside. A component's visibility = (its visible faces) / (its faces). Components smaller
    than `SLIVER=100` faces skip the test and are always kept (they are zero-area CAD export
    garbage). Face ids are `+1` so 0 stays the background sentinel.
+   `visibility()` also stashes the per-face `seen` array on `G` and uploads it as the `aSeen`
+   vertex attribute — that is what paints "this face is visible from outside" orange, both on the
+   selected part and (in 外露高亮 mode) across every part marked for deletion. `G.hit[c]` keeps the
+   per-component visible-face count shown in the footer.
 4. **`autoApply()` / `sync()`** — effective state = manual override if present, else
    `visibility < threshold`. `sync()` rewrites the per-vertex `aState` buffer and refreshes the
    table. It must skip table rows without `dataset.c` — the last row is the "N 个碎片" note, not a
@@ -57,6 +61,17 @@ One WebGL2 program does everything, switched by the `uMode` uniform: `0` = shade
 buffer (used by both `visibility()` and `pick()`). Hidden geometry is culled in the vertex shader by
 emitting `gl_Position = vec4(0,0,2,1)` (outside the clip volume) rather than by re-uploading buffers,
 so toggling "show deleted" / "isolate" costs nothing.
+
+The shaded view draws in up to two passes, selected by `uPass`. Pass 0 is the normal scene. Pass 1
+is the **through-wall highlight**: depth test off, backface culling on, blending on, and the vertex
+shader drops everything except the selected component — so an internal part shows through the
+housing instead of being invisible behind it. An earlier attempt ghosted *the rest of the model*
+with alpha instead; don't go back to that. Layered unsorted transparency (shell front faces + back
+faces + other internals) accumulates into a white wash and the part gets harder to see, not easier.
+
+`frame(c)` flies the camera to a component using the per-component bounding boxes (`G.cmin/cmax`,
+built in `load()`). Its distance is `max(partRadius*4, modelRadius*1.5)` — the floor matters: zoom
+in closer than that on a small internal part and the camera ends up *inside* the housing.
 
 Per-vertex attributes: `aPos`, `aNrm`, `aComp` (component id, used for hover/selection compare in
 the shader), `aState` (0 keep / 1 delete — the only buffer that gets rewritten on edits).
