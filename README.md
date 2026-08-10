@@ -89,6 +89,7 @@ python cli/vis_split.py meshes/ --dry-run       # 只统计不写文件
 
 - 原生 WebGL2（无 three.js，无框架，无构建工具）
 - STL 解析 / 顶点焊接 / 并查集连通体 / 可见率扫描 / STL 导出全部手写
+- 命令行版：Python + trimesh + Embree（`cli/`，判据与网页版一致）
 - 部署：GitHub Pages（GitHub Actions 直接发布仓库根目录）
 
 ## 已知限制
