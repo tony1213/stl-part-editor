@@ -3,3 +3,4 @@
 *.STL
 *.stl
 !screenshots/*
+__pycache__/

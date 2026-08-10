@@ -39,7 +39,11 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    whole tool stops working. This mirrors trimesh's `face_adjacency`, which also requires
    `require_count=2` — that equivalence is what makes the GUI and the CLI agree face-for-face.
 3. **`visibility(g)`** — the core metric. Renders the mesh into an offscreen FBO from `NDIR=64`
-   Fibonacci-distributed directions with an orthographic camera, in "id mode" where each fragment
+   Fibonacci-distributed directions with an orthographic camera. The grid is sized from the model,
+   not fixed: `min(600, max(64, ceil(2*radius*1.05 / 0.3mm)))`, mirroring the CLI. A fixed 320²
+   grid under-samples large parts (base_link, ~180 mm) and depresses every visibility number, which
+   silently deletes borderline components — that bug cost two real parts before it was found.
+   Continuing the original description, in "id mode" where each fragment
    writes `gl_VertexID/3 + 1` encoded as RGB. Reading back the pixels gives the set of faces visible
    from outside. A component's visibility = (its visible faces) / (its faces). Components smaller
    than `SLIVER=100` faces skip the test and are always kept (they are zero-area CAD export

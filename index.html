@@ -120,7 +120,8 @@ footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:8px;al
 "use strict";
 const $=id=>document.getElementById(id);
 const SLIVER=100;                       // 小于这个面数的碎片一律保留（CAD 导出的零面积三角形）
-const NDIR=64, VPX=320;                 // 可见率: 64 个方向 x 320px 正交扫描
+const NDIR=64;                          // 可见率: 64 个方向正交扫描
+const MIN_SPACING=3e-4, GRID_MAX=600;   // 射线间距 0.3mm 封顶 600x600（与 cli/vis_split.py 一致）
 let G=null;                             // 当前模型的全部状态
 
 /* ---------- 小型矩阵库 ---------- */
@@ -347,6 +348,8 @@ function select(c,doFrame){
 
 /* ---------- 可见率: 64 方向正交扫描, 只数“第一眼看到”的面 ---------- */
 function visibility(g){
+ // 网格随模型尺寸走: 大件也保证 0.3mm 的射线间距, 否则小特征采样不到、可见率会偏低
+ const VPX=Math.min(GRID_MAX,Math.max(64,Math.ceil(2*g.radius*1.05/MIN_SPACING)));
  fboSize(VPX);
  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,VPX,VPX);
  gl.uniform1f(loc.uMode,1);gl.uniform1f(loc.uShowDel,1);
