@@ -8,19 +8,6 @@
 
 零依赖单文件——不联网、不上传，STL 全在本机内存里处理。把 `index.html` 存到本地双击也一样能用。
 
-## 截图
-
-<table>
-<tr>
-<td align="center"><img src="screenshots/overview.png" width="480"/><br><b>透视待删零件</b>（红色 = 判定为内部件，透过外壳显出来）</td>
-<td align="center"><img src="screenshots/xray.png" width="480"/><br><b>点选一个零件</b>（蓝色是被挡住的部分，<b>橙色是它露在外面的面</b>）</td>
-</tr>
-<tr>
-<td align="center"><img src="screenshots/expose.png" width="480"/><br><b>标出外露面</b>（剔除结果 + 橙色标出外表面会缺的地方）</td>
-<td align="center"><img src="screenshots/result.png" width="480"/><br><b>剔除后</b>（10.7 万面 → 4.2 万面，外形一模一样）</td>
-</tr>
-</table>
-
 ## 它怎么判断「内部零件」
 
 1. **焊接顶点 → 拆连通体。** 只沿「恰好被两个面共用」的边连通。CAD 里贴合的零件会共用非流形边（一条边挂 3 个以上的面），那种边不算连通，否则电机会和外壳并成一坨。
