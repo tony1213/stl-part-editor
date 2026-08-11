@@ -112,8 +112,13 @@ threshold behavior. `G.del` is the resolved per-component decision that the shad
 
 ## Conventions
 
-- UI text is Chinese; code comments are Chinese; this file is English (same split as the author's
-  other repos).
+- The UI is bilingual 中/EN; code comments are Chinese; this file is English (same split as the
+  author's other repos). **Every user-visible string lives in the `I18N` table** — static markup
+  carries `data-i18n="key"` and `applyLang()` fills it, anything assembled in JS goes through
+  `T(key, ...)`. Adding UI text means adding a row to both `zh` and `en`, never a bare literal.
+  `applyLang()` re-runs `buildList()` / `autoApply()` because the table and footer are assembled
+  strings, not markup. English runs wider than Chinese: the parts table and the 368px `aside` are
+  sized for the English column widths, so check EN before trimming either.
 - `<meta charset="utf-8">` must stay on line 1 — without it, opening the file over `file://` renders
   the Chinese UI as mojibake.
 - **`index.html` and `cli/vis_split.py` implement the same criterion twice** (WebGL vs
