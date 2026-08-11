@@ -185,17 +185,32 @@ function components(pos,count){
  const par=new Int32Array(count).map((_,i)=>i);
  const find=x=>{while(par[x]!==x){par[x]=par[par[x]];x=par[x];}return x;};
  const uni=(a,b)=>{a=find(a);b=find(b);if(a!==b)par[b]=a;};
+ // CAD 导出常把整片曲面写两遍(base_link 的两个电机罐子就是: 1743 个三角形各出现两次)。
+ // 重复面会把它每条边的共用面数顶到 4, 于是下面“恰好两面”的规则一条边都连不上, 整片皮碎成
+ // 一个个单三角形, 再被 SLIVER 规则无条件保留 —— 电机就永远删不掉。所以顶点集合相同的三角形
+ // 只留第一份参与建边, 副本直接并到它身上: 几何一个不改, 导出仍是原始三角形的严格子集。
+ const tmap=new Map(), twin=new Int32Array(count);
+ for(let t=0;t<count;t++){
+  let a=vid[t*3],b=vid[t*3+1],c=vid[t*3+2],x;
+  if(a>b){x=a;a=b;b=x;} if(b>c){x=b;b=c;c=x;} if(a>b){x=a;a=b;b=x;}
+  const k=a+","+b+","+c, f=tmap.get(k);
+  if(f===undefined){tmap.set(k,t);twin[t]=t;}else twin[t]=f;
+ }
  // 只沿“恰好被两个面共用”的边连通。CAD 里两个零件贴合时会共用边(非流形, 3+ 个面),
  // 那种边不能算连通, 否则电机和外壳会被并成一个零件。trimesh 的 face_adjacency 也是这个规则。
  const eA=new Map(), eB=new Map(), eN=new Map();
- for(let t=0;t<count;t++)for(let e=0;e<3;e++){
-  const a=vid[t*3+e], b=vid[t*3+(e+1)%3];
-  if(a===b)continue;                                   // 退化边
-  const k=(a<b?a:b)*nv+(a<b?b:a);
-  const n=(eN.get(k)||0)+1; eN.set(k,n);
-  if(n===1)eA.set(k,t); else if(n===2)eB.set(k,t);
+ for(let t=0;t<count;t++){
+  if(twin[t]!==t)continue;                             // 重复面的副本不参与建边
+  for(let e=0;e<3;e++){
+   const a=vid[t*3+e], b=vid[t*3+(e+1)%3];
+   if(a===b)continue;                                  // 退化边
+   const k=(a<b?a:b)*nv+(a<b?b:a);
+   const n=(eN.get(k)||0)+1; eN.set(k,n);
+   if(n===1)eA.set(k,t); else if(n===2)eB.set(k,t);
+  }
  }
  for(const [k,n] of eN) if(n===2) uni(eA.get(k),eB.get(k));
+ for(let t=0;t<count;t++) if(twin[t]!==t) uni(t,twin[t]);
  const lab=new Int32Array(count), remap=new Map(); let nc=0;
  for(let t=0;t<count;t++){const r=find(t);let c=remap.get(r);if(c===undefined){c=nc++;remap.set(r,c);}lab[t]=c;}
  const size=new Int32Array(nc); for(let t=0;t<count;t++)size[lab[t]]++;

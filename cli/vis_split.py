@@ -66,8 +66,29 @@ def farfield_visible(mesh, n_dirs=N_DIRS, grid=600):
     return seen, 2 * r / n
 
 
+def face_labels(mesh):
+    """连通体标号(只沿"恰好被两个面共用"的边, 即 trimesh 的 face_adjacency)。
+
+    CAD 导出常把整片曲面写两遍(base_link 的两个电机罐子就是: 1743 个三角形各出现两次)。
+    重复面会把它每条边的共用面数顶到 4, 于是一条边都连不上, 整片皮碎成一个个单三角形,
+    再被 SLIVER_FACES 无条件保留 —— 电机就永远删不掉。所以顶点集合相同的三角形只留第一份
+    参与建邻接, 副本跟着它的代表面走: 几何一个不改, 导出仍是原始三角形的严格子集。
+    """
+    tri = np.sort(mesh.faces, axis=1)
+    _, first, inv = np.unique(tri, axis=0, return_index=True, return_inverse=True)
+    twin = first[inv.ravel()]                           # 每个面 -> 它的代表面 (numpy 2.0 的 inv 是二维)
+    rep = np.flatnonzero(twin == np.arange(len(mesh.faces)))
+    if len(rep) == len(mesh.faces):                     # 没有重复面: 就是原来那条路
+        return trimesh.graph.connected_component_labels(mesh.face_adjacency, node_count=len(mesh.faces))
+    slot = np.empty(len(mesh.faces), int)
+    slot[rep] = np.arange(len(rep))                     # 代表面 -> 它在子网格里的下标
+    sub = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces[rep], process=False)
+    lab_rep = trimesh.graph.connected_component_labels(sub.face_adjacency, node_count=len(rep))
+    return lab_rep[slot[twin]]
+
+
 def analyse(mesh, grid=600):
-    labels = trimesh.graph.connected_component_labels(mesh.face_adjacency, node_count=len(mesh.faces))
+    labels = face_labels(mesh)
     n_comp = int(labels.max()) + 1
     counts = np.bincount(labels, minlength=n_comp)
     seen, spacing = farfield_visible(mesh, grid=grid)

@@ -38,6 +38,15 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    a shared edge (3+ faces on one edge); unioning those merges a motor into its housing and the
    whole tool stops working. This mirrors trimesh's `face_adjacency`, which also requires
    `require_count=2` — that equivalence is what makes the GUI and the CLI agree face-for-face.
+   **Exactly-duplicated triangles (same three welded vertices) contribute edges only once**; the
+   copy is unioned straight onto its twin. CAD exporters write whole surface patches twice —
+   `base_link.STL` stores both motor cans twice (1,743 triangles), `l_/r_knee_pitch` 5.8% of the
+   file. A duplicated patch pushes every one of its interior edges to 4 faces, so the
+   exactly-two rule connects nothing, the patch shatters into 1-face components, and the
+   `SLIVER` floor below then keeps every one of them *without ever testing visibility* — the motor
+   shell survives deletion and stands there in the preview looking like the tool ignored it.
+   Dedup only feeds the adjacency graph: both copies land in the same component, so the export is
+   still a strict subset of the input triangles.
 3. **`visibility(g)`** — the core metric. Renders the mesh into an offscreen FBO from `NDIR=64`
    Fibonacci-distributed directions with an orthographic camera. The grid is sized from the model,
    not fixed: `min(600, max(64, ceil(2*radius*1.05 / 0.3mm)))`, mirroring the CLI. A fixed 320²
@@ -47,7 +56,11 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    writes `gl_VertexID/3 + 1` encoded as RGB. Reading back the pixels gives the set of faces visible
    from outside. A component's visibility = (its visible faces) / (its faces). Components smaller
    than `SLIVER=100` faces skip the test and are always kept (they are zero-area CAD export
-   garbage). Face ids are `+1` so 0 stays the background sentinel.
+   garbage). That "garbage" premise only holds once `components()` has deduplicated triangles —
+   before that fix `base_link` produced 3,486 sliver faces of real surface area (4,590 mm², both
+   motor cans) that this floor kept unconditionally. If sliver counts ever run into the thousands
+   again, suspect the labelling, not the floor. Face ids are `+1` so 0 stays the background
+   sentinel.
    `visibility()` also stashes the per-face `seen` array on `G` and uploads it as the `aSeen`
    vertex attribute — that is what paints "this face is visible from outside" orange, both on the
    selected part and (in 外露高亮 mode) across every part marked for deletion. `G.hit[c]` keeps the
