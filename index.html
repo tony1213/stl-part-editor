@@ -141,7 +141,7 @@ const I18N={
   busyWeld:n=>`焊接顶点 / 拆连通体（${n} 面）…`,
   busyVis:"从 64 个方向计算可见率…",
   notStl:"没读到三角形，文件可能不是 STL",
-  hints:["左键拖动=旋转","滚轮=缩放","右键拖动=平移","点模型/列表选中零件，双击（或 Shift+点）切换保留/删除"],
+  hints:["左键拖动=旋转","滚轮=缩放","右键拖动=平移","点模型/列表选中零件，双击切换保留/删除"],
  },
  en:{
   title:"STL Internal Part Remover",
@@ -165,7 +165,7 @@ const I18N={
   busyWeld:n=>`Welding vertices / splitting components (${n} faces)…`,
   busyVis:"Scoring visibility from 64 directions…",
   notStl:"No triangles found — this file may not be an STL",
-  hints:["Left-drag = rotate","Wheel = zoom","Right-drag = pan","Click a part in the model or the list; double-click (or Shift+click) toggles keep/delete"],
+  hints:["Left-drag = rotate","Wheel = zoom","Right-drag = pan","Click a part in the model or the list; double-click toggles keep/delete"],
  },
 };
 let LANG=(navigator.language||"").toLowerCase().startsWith("zh")?"zh":"en";
@@ -516,7 +516,7 @@ function buildList(){
   const tr=document.createElement("tr");tr.className="item";tr.dataset.c=c;
   tr.innerHTML=`<td><span class="dot" style="background:hsl(${(c*47)%360} 45% 55%)"></span>#${c}</td>
    <td>${fmt(G.size[c])}</td><td>${(100*G.vis[c]).toFixed(1)}%</td><td class="st"></td>`;
-  tr.onclick=e=>{ if(e.shiftKey||e.metaKey||e.ctrlKey){toggle(c);} else select(c); };
+  tr.onclick=()=>select(c);
   tr.ondblclick=()=>toggle(c);
   tr.onmouseenter=()=>{G.hover=c;render();};
   tr.onmouseleave=()=>{G.hover=-1;render();};
@@ -610,8 +610,8 @@ cv.addEventListener("pointerup",e=>{
  if(!G||!d||d.moved>4)return;
  const c=pick(e.offsetX,e.offsetY);
  if(c<0){G.sel=-1;sync();return;}
- if(e.shiftKey)toggle(c); else {select(c,false);
-  const tr=[...$("tb").children].find(x=>+x.dataset.c===c);if(tr)tr.scrollIntoView({block:"nearest"});}
+ select(c,false);
+ const tr=[...$("tb").children].find(x=>+x.dataset.c===c);if(tr)tr.scrollIntoView({block:"nearest"});
 });
 cv.addEventListener("dblclick",e=>{if(!G)return;const c=pick(e.offsetX,e.offsetY);if(c>=0)toggle(c);});
 cv.addEventListener("contextmenu",e=>e.preventDefault());
