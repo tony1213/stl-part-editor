@@ -62,14 +62,13 @@ Pipeline, in load order (`load()` at the bottom of the script drives it):
    again, suspect the labelling, not the floor. Face ids are `+1` so 0 stays the background
    sentinel.
    `visibility()` also stashes the per-face `seen` array on `G` and uploads it as the `aSeen`
-   vertex attribute — that is what paints "this face is visible from outside" orange, both on the
-   selected part and (in 外露高亮 mode) across every part marked for deletion. `G.hit[c]` keeps the
-   per-component visible-face count shown in the footer.
-   The two remaining view options interact deliberately: 透视待删零件 off normally culls
-   delete-marked parts entirely (preview of the export), **except** faces with `aSeen` while 标出外露面
-   is on — those stay, painted orange, so the clean preview still shows exactly where the outer
-   surface would lose material. Don't "simplify" that exception away; without it the highlight has
-   nothing to draw in preview mode, which is the mode where it matters most.
+   vertex attribute — that is what paints "this face is visible from outside" orange on the
+   **selected** part. `G.hit[c]` keeps the per-component visible-face count shown in the footer
+   ("露出 N 面"). There used to be a 标出外露面 checkbox that painted the same orange across every
+   delete-marked part at once, plus a `uExpose` uniform and a culling exception that kept those
+   faces visible in preview mode; the user removed it as clutter. Select a part to see its
+   exposed faces instead. The one remaining view option, 透视待删零件, is plain: off culls
+   delete-marked parts entirely (preview of the export), on draws them through the shell.
 4. **`autoApply()` / `sync()`** — effective state = manual override if present, else
    `visibility < threshold`. `sync()` rewrites the per-vertex `aState` buffer and refreshes the
    table. It must skip table rows without `dataset.c` — the last row is the "N 个碎片" note, not a
@@ -121,6 +120,10 @@ threshold behavior. `G.del` is the resolved per-component decision that the shad
   sized for the English column widths, so check EN before trimming either.
 - `<meta charset="utf-8">` must stay on line 1 — without it, opening the file over `file://` renders
   the Chinese UI as mojibake.
+- **There are no keyboard shortcuts, and there is no `keydown` listener.** E / H / F and
+  Delete / Backspace all existed and were removed on request — the panel checkbox and
+  double-click already do those jobs. The panel keeps shrinking by the same logic (isolate,
+  through-wall, auto-frame, 标出外露面 were all cut); when in doubt, leave the UI smaller.
 - **`index.html` and `cli/vis_split.py` implement the same criterion twice** (WebGL vs
   trimesh+Embree) and must stay interchangeable: same welding tolerance, same manifold-edge rule,
   same 100-face sliver floor, same visibility definition, same default threshold. Change one, change
